@@ -8,7 +8,6 @@
 // - FIX 2: Usa la Clave de Servicio (SERVICE_KEY) para bypassear RLS
 // - FIX 3: Corregido el nombre de columna 'fecha_cita' a 'fecha_hora'
 // - FIX 4: Añadidos logs de diagnóstico para variables de entorno
-// - FIX 5 (ACTUAL): Relajada validación de Storage y añadido log de Zod
 //
 // =======================================================================================
 
@@ -136,18 +135,9 @@ const doctorUpdateSchema = doctorSchema.partial();
 const generateUploadSchema = z.object({
     clienteId: z.number().int().positive(),
     fileName: z.string().min(1).max(255),
-    
-    // --- INICIO DE CORRECCIÓN ---
-    // Se quitó .min(1) para permitir que el navegador envíe
-    // un fileType vacío ("") si no reconoce la extensión.
-    fileType: z.string().max(100), 
-    
-    // Se cambió .positive() (mayor a 0) por .min(0) (mayor o igual a 0)
-    // para permitir la subida de archivos vacíos (0 bytes).
-    fileSize: z.number().int().min(0), // en bytes
-    // --- FIN DE CORRECCIÓN ---
+    fileType: z.string().min(1).max(100), // ej. 'application/pdf'
+    fileSize: z.number().int().positive(), // en bytes
 });
-
 
 const confirmUploadSchema = z.object({
     clienteId: z.number().int().positive(),
@@ -495,7 +485,7 @@ const BUCKET_NAME = 'archivos';
 // Genera una URL firmada para que el frontend suba un archivo DIRECTAMENTE a Supabase Storage.
 app.post('/api/files/generate-upload-url', async (req, res) => {
     try {
-        const { clienteId, fileName, fileType, fileSize } = generateUploadSchema.parse(req.body);
+        const { clienteId, fileName, fileType } = generateUploadSchema.parse(req.body);
         
         // Creamos una ruta única en el Storage para evitar colisiones
         const storagePath = `public/${clienteId}/${Date.now()}-${fileName}`;
@@ -516,13 +506,7 @@ app.post('/api/files/generate-upload-url', async (req, res) => {
         });
 
     } catch (error) {
-        // --- INICIO DE CORRECCIÓN (LOGGING) ---
-        if (error instanceof z.ZodError) {
-            // Añadimos un log para ver los fallos de validación en el servidor
-            console.warn(`Fallo de validación Zod en (generate-upload-url) [400]:`, error.flatten().fieldErrors);
-            return res.status(400).json({ error: 'Datos de archivo inválidos', details: error.errors });
-        }
-        // --- FIN DE CORRECCIÓN (LOGGING) ---
+        if (error instanceof z.ZodError) return res.status(400).json({ error: 'Datos de archivo inválidos', details: error.errors });
         console.error("Error al generar URL de subida:", error.message);
         res.status(500).json({ error: 'No se pudo generar la URL de subida.', details: error.message });
     }
